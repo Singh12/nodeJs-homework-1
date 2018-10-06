@@ -1,64 +1,109 @@
 /*
-* Creating Hello world Api
-*
-*/
+ * Primary file for API
+ *
+ */
 
-// Importing HTTP
+// Dependencies
 var http = require('http');
-// Regestring URL service
 var url = require('url');
-
-// Creating server
-var server = http.createServer(function(req,res){
- // Getting the url path   
- var urlParse = url.parse(req.url,true);
- var path = urlParse.pathname;
- // Removing all special character
- var clearPath = path.replace(/^\/+|\/+$/g, '');
- // Getting all headre information, but that is not required for the assignment
- var header = req.headers;
- // router function to find the path if not found just return empty object with 404 status
- var choosenHendler = typeof(route[clearPath]) !== 'undefined' ? route[clearPath] : handler.notfound;
- var data = {
-     header: header,   
-     path:clearPath
- }
-  // Route the request to the handler specified in the router
-choosenHendler(data, function(status,payload){
-var status = typeof(status) == 'number' ? status:200;
-var payload = typeof(payload) == 'object' ? payload:{};
-// conver the payload to string
-var payloadString = JSON.stringify(payload);
-res.setHeader("Content-Type", "text/json");
-// Return the response
-res.writeHead(status);
-res.end(payloadString);
-console.log("Returning this response: ", status, payloadString);
-});
- res.end('Returning Hello Api DATA in JSON formate');
+var https = require('https');
+var fs = require('fs');
+var StringDecoder = require('string_decoder').StringDecoder;
+var config = require('./lib/config.js');
+var lib = require('./lib/data.js');
+var handlers = require('./lib/handlers.js');
+var helpers = require('./lib/helpers.js');
+/*lib.delete('newFile','file',function(err){
+  console.log(err);
+})*/
+// Configure the server to respond to all requests with a string
+// todo delete after test
+helpers.sendTwilioSms("7619174830","Hi",function(err){
+  console.log("message sent with", err);
+})
+var httpServer = http.createServer(function (req, res) {
+  unifiedServer(req, res);
 });
 
-// Listing to the port 3000
-
-server.listen(3000, function(){
-    console.log('The server is up and running');
+// Start the server
+httpServer.listen(config.httpPort, function () {
+  console.log('The server is up and running now on port: ' + config.httpPort + ' on: ' + config.envName + ' mode');
+});
+var httpsServerOptions = {
+  cert: fs.readFileSync('./https/cert.pem'),
+  key: fs.readFileSync('./https/key.pem')
+}
+// https server call
+var httpsServer = https.createServer(httpsServerOptions, function (req, res) {
+  unifiedServer(req, res);
 });
 
-// Createing Handlers object
+httpsServer.listen(config.httpsPort, function () {
+  console.log('The server is up and running now on port: ' + config.httpsPort + ' on: ' + config.envName + ' mode');
+});
 
-var handler = {};
+var unifiedServer = function (req, res) {
 
-// hello handler
-handler.hello = function(data,callback) {
-callback(200,{'hello': 'Hello how are you this is my first Json api'});
-};
+  // Parse the url
+  var parsedUrl = url.parse(req.url, true);
+  // Get the path
+  var path = parsedUrl.pathname;
+  var trimmedPath = path.replace(/^\/+|\/+$/g, '');
 
-// Not found Handler
-handler.notfound = function(data,callback) {
-callback(400);
-};
+  // Get the query string as an object
+  var queryStringObject = parsedUrl.query;
 
-// Router defination
-var route = {
-    'hello' : handler.hello
+  // Get the HTTP method
+  var method = req.method.toLowerCase();
+
+  //Get the headers as an object
+  var headers = req.headers;
+
+  // Get the payload,if any
+  var decoder = new StringDecoder('utf-8');
+  var buffer = '';
+  req.on('data', function (data) {
+    buffer += decoder.write(data);
+  });
+  req.on('end', function () {
+    buffer += decoder.end();
+    // Check the router for a matching path for a handler. If one is not found, use the notFound handler instead.
+    var chosenHandler = typeof (router[trimmedPath]) !== 'undefined' ? router[trimmedPath] : handlers.notFound;
+    // Construct the data object to send to the handler
+    console.log(buffer);
+    // buffer += JSON.stringify(buffer);
+    var data = {
+      'trimmedPath': trimmedPath,
+      'queryStringObject': queryStringObject,
+      'method': method,
+      'headers': headers,
+      'payload': helpers.jsonObj(buffer)
+    };
+    // Route the request to the handler specified in the router
+    chosenHandler(data, function (statusCode, payload) {
+      // Use the status code returned from the handler, or set the default status code to 200
+      statusCode = typeof (statusCode) == 'number' ? statusCode : 200;
+
+      // Use the payload returned from the handler, or set the default payload to an empty object
+      payload = typeof (payload) == 'object' ? payload : {};
+
+      // Convert the payload to a string
+      var payloadString = JSON.stringify(payload);
+      res.setHeader("Content-Type", "text/json");
+      // Return the response
+      res.writeHead(statusCode);
+      res.end(payloadString);
+      console.log("Returning this response: ", statusCode, payloadString);
+
+    });
+
+  });
+}
+
+// Define the request router
+var router = {
+  'ping': handlers.ping,
+  'users': handlers.users,
+  'checks': handlers.checks,
+  'tokens': handlers.tokens
 };
